@@ -222,7 +222,7 @@ function setBox(id, b){ leit[id] = Math.max(1, Math.min(5, b)); store.set(KEY + 
 function norm(s){
   let t = String(s).toLowerCase().replace(/[’`´]/g, "'").replace(/\((to|pl)\)/g, " ")
     .replace(/\b(sb|sth|somebody|something|someone)\b\.?/g, " ")
-    .replace(/[®™]/g, "").replace(/(\d)\s+(?=[a-zäöüµ%°])/g, "$1").replace(/[-–]/g, " ").replace(/[().,!?;:…"“”„]/g, " ").replace(/\s+/g, " ").trim();
+    .replace(/[®™]/g, "").replace(/(\d)\s+(?=[a-zäöüµ%°])/g, "$1").replace(/[-–]/g, " ").replace(/[().,!?;:…"“”„\/\\&+]/g, " ").replace(/\s+/g, " ").trim();
   t = t.replace(/^to /, "").replace(/^(a|an|the) (?!cooking)/, "");
   return t.trim();
 }
@@ -336,7 +336,7 @@ function showHint(kind){
 // No synonyms: the core word itself must be there. Prepositions that belong to the phrase (good AT) must be there.
 const FILLER = new Set(("a an the to sb sth somebody something someone one oneself pl i me my mine you your he him his she her it its " +
   "we us our they them their this that these those am is are was were be been being get gets got getting gotten do does did done " +
-  "will would shall should can could may might must m s re ve ll d der die das den dem des ein eine einen einem einer").split(" "));
+  "will would shall should can could may might must m s re ve ll d doing going gonna and or der die das den dem des ein eine einen einem einer").split(" "));
 function stem(w){
   if(w.length <= 3 || /\d/.test(w)) return w;
   let s = w;
@@ -355,25 +355,37 @@ function core(s){
 }
 // typo: same first letter, 1 wrong letter from 6 letters, 2 from 9 (short words like brake/break or east/west are never "typos")
 function nearWord(e, u){ if(e[0] !== u[0]) return false; const d = lev(e, u); return (d <= 1 && e.length >= 6) || (d <= 2 && e.length >= 9); }
+// Rival words: answers of items whose German word is related (e.g. all the "kochen" words: boil / make tea / cook),
+// plus the item's `wrong` options. Extra words in a sentence are fine, rival words are not ("cook boil fry").
+const DE_SKIP = new Set("welche welcher welches welchen welchem heißt nennt werden haben einen einem einer nicht".split(" "));
+function deWords(s){ return String(s).toLowerCase().replace(/\(.*?\)|„.*?“|".*?"/g, " ").split(/[^a-zäöüß]+/).filter(w => w.length >= 5 && !DE_SKIP.has(w)); }
+const RIVALS = {};
+function rivals(it){
+  if(RIVALS[it.id]) return RIVALS[it.id];
+  const mine = new Set(it.acc.concat(it.en).flatMap(core)), dw = new Set(deWords(it.de)), r = new Set((it.wrong || []).flatMap(core));
+  ITEMS.forEach(o => { if(o.id !== it.id && deWords(o.de).some(w => dw.has(w))) o.acc.concat(o.en).flatMap(core).forEach(w => r.add(w)); });
+  mine.forEach(w => r.delete(w));
+  return RIVALS[it.id] = r;
+}
 function judge(v, it){
-  const n = norm(v), ns = n.replace(/ /g, ""), accs = it.acc.map(norm);
+  const all = it.acc.concat(it.en || []);
+  const n = norm(v), ns = n.replace(/ /g, ""), accs = all.map(norm);
   if(accs.includes(n) || accs.some(a => a.replace(/ /g, "") === ns)) return "exact";
   const U = core(v); if(!U.length) return "";
-  const accStems = new Set(it.acc.flatMap(core));
-  const wrongStems = new Set((it.wrong || []).flatMap(core).filter(w => !accStems.has(w)));
-  for(const a of it.acc){
+  const R = rivals(it), numeric = all.some(a => /\d/.test(a));   // other numbers only matter when the answer is a number or model
+  for(const a of all){
     const E = core(a); if(!E.length) continue;
-    const used = new Set(); let typo = false, all = true;
+    const used = new Set(); let typo = false, ok = true;
     for(const e of E){
       let j = U.findIndex((u, k) => !used.has(k) && u === e);
       if(j < 0){ j = U.findIndex((u, k) => !used.has(k) && nearWord(e, u)); if(j >= 0) typo = true; }
-      if(j < 0){ all = false; break; }
+      if(j < 0){ ok = false; break; }
       used.add(j);
     }
-    if(!all) continue;
+    if(!ok) continue;
     const extra = U.filter((u, k) => !used.has(k));
-    // extra words are fine ("I'm cooking tonight"), but not too many, no other numbers/models, no wrong option
-    if(extra.length > 2 || extra.some(u => /\d/.test(u) || wrongStems.has(u))) continue;
+    // a whole sentence is fine ("Who is going to do the cooking this evening?"); not fine: rival answers, other numbers/models
+    if(extra.length > 10 || extra.some(u => (numeric && /\d/.test(u)) || R.has(u))) continue;
     return typo ? "typo" : "close";
   }
   return "";
