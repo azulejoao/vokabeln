@@ -365,6 +365,7 @@ function rivals(it){
   const mine = new Set(it.acc.concat(it.en).flatMap(core)), dw = new Set(deWords(it.de)), r = new Set((it.wrong || []).flatMap(core));
   ITEMS.forEach(o => { if(o.id !== it.id && deWords(o.de).some(w => dw.has(w))) o.acc.concat(o.en).flatMap(core).forEach(w => r.add(w)); });
   mine.forEach(w => r.delete(w));
+  core(String(it.ex || "").replace(/[{}]/g, "")).forEach(w => r.delete(w));   // words of the own example sentence are never rivals
   return RIVALS[it.id] = r;
 }
 function judge(v, it){
